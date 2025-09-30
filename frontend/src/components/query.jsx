@@ -5,8 +5,10 @@ const Query = ({ selectedQuestion, onQuestionChange }) => {
   const [question, setQuestion] = useState("");
   const [answers, setAnswers] = useState([]);
   const [aiResponse, setAiResponse] = useState("");
+  const [queryMetadata, setQueryMetadata] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [showSources, setShowSources] = useState(false);
 
   // Handle selected question from sample questions
   useEffect(() => {
@@ -25,15 +27,22 @@ const Query = ({ selectedQuestion, onQuestionChange }) => {
 
     setIsLoading(true);
     setHasSearched(true);
+    setShowSources(false); // Reset sources dropdown for new query
 
     try {
       const res = await askQuestion(question);
       setAnswers(res.answers || []);
       setAiResponse(res.ai_response || "");
+      setQueryMetadata({
+        queryType: res.query_type || "general",
+        kUsed: res.k_used || 0,
+        totalSections: res.total_sections || 0,
+      });
     } catch (err) {
       console.error(err);
       setAnswers([]);
       setAiResponse("");
+      setQueryMetadata({});
       alert(
         "Failed to get answers. Make sure you've uploaded documents first!"
       );
@@ -113,11 +122,41 @@ const Query = ({ selectedQuestion, onQuestionChange }) => {
             </div>
           ) : aiResponse || answers.length > 0 ? (
             <div className="space-y-6">
+              {/* Query Analysis Metadata */}
+              {queryMetadata.queryType && (
+                <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center space-x-4">
+                      <span className="text-gray-600">
+                        🔍 Query Type:
+                        <span className="ml-1 px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                          {queryMetadata.queryType}
+                        </span>
+                      </span>
+                      <span className="text-gray-600">
+                        📊 Retrieved:
+                        <span className="ml-1 px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
+                          {queryMetadata.kUsed} sections
+                        </span>
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      Smart retrieval system
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* AI Generated Response */}
               {aiResponse && (
                 <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
                   <h3 className="text-lg font-semibold text-blue-800 mb-3 flex items-center">
                     🤖 AI Response
+                    {queryMetadata.queryType && (
+                      <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">
+                        {queryMetadata.queryType}
+                      </span>
+                    )}
                   </h3>
                   <div className="text-gray-800 leading-relaxed whitespace-pre-wrap">
                     {aiResponse}
@@ -128,29 +167,67 @@ const Query = ({ selectedQuestion, onQuestionChange }) => {
               {/* Source Documents */}
               {answers.length > 0 && (
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                    <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-sm mr-2">
-                      {answers.length}
-                    </span>
-                    📚 Source Document{answers.length > 1 ? "s" : ""}:
-                  </h3>
-                  <div className="space-y-4">
-                    {answers.map((ans, idx) => (
-                      <div
-                        key={idx}
-                        className="bg-gray-50 rounded-lg p-4 border-l-4 border-green-400"
-                      >
-                        <p className="text-gray-700 leading-relaxed mb-2 text-sm">
-                          {ans.content}
-                        </p>
-                        <div className="flex items-center text-sm text-gray-500">
-                          <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                            📄 {ans.source}
-                          </span>
-                        </div>
+                  <button
+                    onClick={() => setShowSources(!showSources)}
+                    className="w-full text-left p-4 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors duration-200"
+                  >
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+                        <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-sm mr-3">
+                          {answers.length}
+                        </span>
+                        📚 Source Document{answers.length > 1 ? "s" : ""}
+                      </h3>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm text-gray-500">
+                          {showSources ? "Hide" : "Show"} sources
+                        </span>
+                        <svg
+                          className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${
+                            showSources ? "rotate-180" : ""
+                          }`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 9l-7 7-7-7"
+                          />
+                        </svg>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  </button>
+                  
+                  {/* Collapsible Content */}
+                  {showSources && (
+                    <div className="mt-4 fade-in">
+                      <div className="space-y-4">
+                        {answers.map((ans, idx) => (
+                          <div
+                            key={idx}
+                            className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200"
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex items-center text-sm text-gray-500">
+                                <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-medium">
+                                  📄 {ans.source}
+                                </span>
+                                <span className="ml-2 text-xs text-gray-400">
+                                  Section {idx + 1}
+                                </span>
+                              </div>
+                            </div>
+                            <p className="text-gray-700 leading-relaxed text-sm">
+                              {ans.content}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

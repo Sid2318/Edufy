@@ -228,13 +228,135 @@ def initialize_vector_store(force_recreate=False):
         db = Chroma(persist_directory=persistent_directory, embedding_function=embeddings)
         return db, embeddings
 
-def query_documents(db, query, use_llm=True):
-    """Query the vector store and use LLM to generate response based on retrieved content."""
+def analyze_query_type(query):
+    """Analyze the query to determine the appropriate retrieval strategy."""
+    query_lower = query.lower().strip()
     
-    # Retrieve relevant documents based on the query
+    # Broad/Summary queries - need more context
+    summary_keywords = [
+        'summarize', 'summary', 'overview', 'explain all', 'tell me about',
+        'what is this document about', 'main points', 'key points', 'everything',
+        'all about', 'complete', 'entire document', 'whole', 'comprehensive',
+        'topics covered', 'what topics', 'what does this cover'
+    ]
+    
+    # Specific/Detail queries - need focused retrieval
+    specific_keywords = [
+        'define', 'definition', 'what is', 'who is', 'when', 'where', 'how much',
+        'specific', 'exactly', 'precisely', 'find', 'locate', 'search for',
+        'one detail', 'particular', 'single', 'individual'
+    ]
+    
+    # List/Enumeration queries - need moderate context
+    list_keywords = [
+        'list', 'types of', 'kinds of', 'examples of', 'categories',
+        'what are the', 'how many', 'enumerate', 'steps', 'process',
+        'methods', 'ways', 'approaches'
+    ]
+    
+    # Comparison queries - need multiple contexts
+    comparison_keywords = [
+        'compare', 'contrast', 'difference', 'similar', 'versus', 'vs',
+        'better', 'worse', 'advantages', 'disadvantages', 'pros', 'cons'
+    ]
+    
+    # Check for query patterns
+    if any(keyword in query_lower for keyword in summary_keywords):
+        return "summary"  # Large k
+    elif any(keyword in query_lower for keyword in specific_keywords):
+        return "specific"  # Small k
+    elif any(keyword in query_lower for keyword in list_keywords):
+        return "list"  # Medium k
+    elif any(keyword in query_lower for keyword in comparison_keywords):
+        return "comparison"  # Medium-large k
+    else:
+        return "general"  # Default medium k
+
+def calculate_dynamic_k(total_chunks, query_type, query_length):
+    """Calculate the optimal k value based on document size, query type, and complexity."""
+    
+    # Base k values by query type
+    k_mapping = {
+        "specific": {"min": 1, "base": 2, "max": 4},
+        "list": {"min": 2, "base": 4, "max": 6}, 
+        "comparison": {"min": 3, "base": 5, "max": 8},
+        "summary": {"min": 4, "base": 8, "max": 12},
+        "general": {"min": 2, "base": 4, "max": 6}
+    }
+    
+    k_config = k_mapping.get(query_type, k_mapping["general"])
+    
+    # Start with base k for the query type
+    k = k_config["base"]
+    
+    # Adjust based on document size
+    if total_chunks <= 3:
+        # Very small document - take everything
+        k = min(total_chunks, k_config["max"])
+    elif total_chunks <= 10:
+        # Small document - slightly reduce k
+        k = max(k_config["min"], k - 1)
+    elif total_chunks <= 25:
+        # Medium document - use base k
+        k = k_config["base"]
+    elif total_chunks <= 50:
+        # Large document - slightly increase k for summary/comparison
+        if query_type in ["summary", "comparison"]:
+            k = min(k + 2, k_config["max"])
+    else:
+        # Very large document - use max k for broad queries, min for specific
+        if query_type == "specific":
+            k = k_config["min"]
+        elif query_type in ["summary", "comparison"]:
+            k = k_config["max"]
+        else:
+            k = k_config["base"]
+    
+    # Adjust based on query complexity (length as a proxy)
+    if query_length > 100:  # Complex, detailed query
+        k = min(k + 1, k_config["max"])
+    elif query_length < 20:  # Simple, short query
+        k = max(k - 1, k_config["min"])
+    
+    # Ensure k doesn't exceed available chunks
+    k = min(k, total_chunks)
+    
+    # Ensure k is at least 1
+    k = max(1, k)
+    
+    return k
+
+def query_documents(db, query, use_llm=True):
+    """Query the vector store and use LLM to generate response based on retrieved content with dynamic k."""
+    
+    # Analyze query type and calculate dynamic k
+    query_type = analyze_query_type(query)
+    
+    # Get total number of chunks in the database (approximate)
+    try:
+        # Get a large sample to estimate total chunks
+        temp_retriever = db.as_retriever(search_kwargs={"k": 100})
+        temp_results = temp_retriever.invoke("sample query for counting")
+        total_chunks = len(temp_results) if temp_results else 10  # fallback estimate
+        # For more accurate count, we use this as an approximation
+        if len(temp_results) == 100:
+            total_chunks = 100  # We hit the limit, likely more chunks
+    except:
+        total_chunks = 10  # Safe fallback
+    
+    # Calculate optimal k
+    k = calculate_dynamic_k(total_chunks, query_type, len(query))
+    
+    print(f"🔍 Query Analysis:")
+    print(f"   Type: {query_type}")
+    print(f"   Document chunks: ~{total_chunks}")
+    print(f"   Retrieving top {k} most relevant sections")
+    print("-" * 40)
+    
+    # Retrieve relevant documents based on the dynamic k
     retriever = db.as_retriever(
         search_type="similarity",
-        search_kwargs={"k": 3}
+        search_kwargs={"k": k}
     )
     relevant_docs = retriever.invoke(query)
     
@@ -266,13 +388,40 @@ def query_documents(db, query, use_llm=True):
         print(f"\nGenerating AI Response based on retrieved content:")
         print("-" * 40)
         
-        # Combine the query and the relevant document contents for LLM processing
+        # Adapt the prompt based on query type
         context_content = "\n\n".join([f"Section {i+1}:\n{doc.page_content}" for i, doc in enumerate(relevant_docs)])
+        
+        # Customize prompt based on query type
+        if query_type == "summary":
+            instruction = (
+                "Provide a comprehensive summary that synthesizes information from all the provided sections. "
+                "Cover the main topics, key points, and important details."
+            )
+        elif query_type == "specific":
+            instruction = (
+                "Focus on providing a precise, specific answer to the question. "
+                "Be direct and concise while ensuring accuracy."
+            )
+        elif query_type == "list":
+            instruction = (
+                "Organize your response as a clear, structured list or enumeration. "
+                "Include relevant examples and categorize information where appropriate."
+            )
+        elif query_type == "comparison":
+            instruction = (
+                "Compare and contrast the relevant information from the provided sections. "
+                "Highlight similarities, differences, and relationships between concepts."
+            )
+        else:
+            instruction = (
+                "Provide a comprehensive and accurate answer based on the provided context. "
+                "Structure your response clearly and include relevant details."
+            )
         
         combined_input = (
             f"Question: {query}\n\n"
             f"Context from relevant documents:\n{context_content}\n\n"
-            f"Based on the above context, provide a comprehensive and accurate answer to the question. "
+            f"{instruction} "
             f"Use only the information provided in the context. If the answer cannot be found in the "
             f"provided context, clearly state that the information is not available."
         )
@@ -292,58 +441,97 @@ def query_documents(db, query, use_llm=True):
             result = model.invoke(messages)
             
             # Display the generated response
-            print(f"🤖 AI Response: {result.content}")
+            print(f"🤖 AI Response ({query_type} query, k={k}): {result.content}")
             
             # Return the LLM response along with source documents
             return {
                 "ai_response": result.content,
-                "source_documents": relevant_docs
+                "source_documents": relevant_docs,
+                "query_type": query_type,
+                "k_used": k
             }
             
         except ImportError:
             print("⚠️ Ollama not available. Using document-based response.")
-            fallback_response = generate_fallback_response(query, relevant_docs)
-            print(f"📄 Document-based Response: {fallback_response}")
+            fallback_response = generate_fallback_response(query, relevant_docs, query_type)
+            print(f"📄 Document-based Response ({query_type} query, k={k}): {fallback_response}")
             
             return {
                 "ai_response": fallback_response,
-                "source_documents": relevant_docs
+                "source_documents": relevant_docs,
+                "query_type": query_type,
+                "k_used": k
             }
         except Exception as e:
             print(f"⚠️ LLM Error: {str(e)}")
             print("📋 Falling back to document content only:")
             
             # Fallback: return structured content from documents
-            fallback_response = generate_fallback_response(query, relevant_docs)
-            print(f"📄 Document-based Response: {fallback_response}")
+            fallback_response = generate_fallback_response(query, relevant_docs, query_type)
+            print(f"📄 Document-based Response ({query_type} query, k={k}): {fallback_response}")
             
             return {
                 "ai_response": fallback_response,
-                "source_documents": relevant_docs
+                "source_documents": relevant_docs,
+                "query_type": query_type,
+                "k_used": k
             }
     
     return relevant_docs
 
-def generate_fallback_response(query, relevant_docs):
+def generate_fallback_response(query, relevant_docs, query_type="general"):
     """Generate a structured response when LLM is not available."""
     if not relevant_docs:
         return "No relevant information found in the uploaded documents."
     
     response_parts = []
-    response_parts.append(f"Based on the uploaded document, here's what I found regarding '{query}':")
+    
+    # Customize response based on query type
+    if query_type == "summary":
+        response_parts.append(f"Here's a summary based on your uploaded document regarding '{query}':")
+        response_parts.append("\n📋 Main Topics Found:")
+    elif query_type == "specific":
+        response_parts.append(f"Here's the specific information I found regarding '{query}':")
+    elif query_type == "list":
+        response_parts.append(f"Here are the relevant items/points I found regarding '{query}':")
+        response_parts.append("\n📝 Listed Information:")
+    elif query_type == "comparison":
+        response_parts.append(f"Here's comparative information I found regarding '{query}':")
+        response_parts.append("\n⚖️ Comparison Points:")
+    else:
+        response_parts.append(f"Based on the uploaded document, here's what I found regarding '{query}':")
     
     for i, doc in enumerate(relevant_docs, 1):
         content = doc.page_content.strip()
         source = doc.metadata.get('source', 'Unknown source')
         filename = os.path.basename(source)
         
-        # Limit content length for readability
-        if len(content) > 500:
-            content = content[:500] + "..."
+        # Adjust content length based on query type
+        max_length = {
+            "specific": 200,  # Shorter for specific queries
+            "summary": 600,   # Longer for summaries
+            "list": 400,      # Medium for lists
+            "comparison": 500, # Medium-long for comparisons
+            "general": 400    # Default medium
+        }.get(query_type, 400)
         
-        response_parts.append(f"\n{i}. From {filename}:\n{content}")
+        if len(content) > max_length:
+            content = content[:max_length] + "..."
+        
+        if query_type == "list":
+            response_parts.append(f"\n  {i}. {content}")
+            response_parts.append(f"     📄 Source: {filename}")
+        else:
+            response_parts.append(f"\n{i}. From {filename}:")
+            response_parts.append(f"   {content}")
     
-    response_parts.append(f"\nThis information is extracted from {len(relevant_docs)} relevant section(s) of your uploaded document.")
+    # Add contextual footer based on query type
+    if query_type == "summary":
+        response_parts.append(f"\n📊 This summary covers {len(relevant_docs)} key section(s) from your document.")
+    elif query_type == "specific":
+        response_parts.append(f"\n🎯 This specific information is from {len(relevant_docs)} relevant section(s).")
+    else:
+        response_parts.append(f"\n📚 This information is extracted from {len(relevant_docs)} relevant section(s) of your uploaded document.")
     
     return "\n".join(response_parts)
 

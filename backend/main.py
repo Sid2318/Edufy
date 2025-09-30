@@ -115,10 +115,13 @@ def query(question: str):
     
     # Handle both old format (list of documents) and new format (dict with ai_response)
     if isinstance(results, dict) and "ai_response" in results:
-        # New format with LLM response
+        # New format with LLM response and metadata
         return {
             "question": question,
             "ai_response": results["ai_response"],
+            "query_type": results.get("query_type", "general"),
+            "k_used": results.get("k_used", 3),
+            "total_sections": len(results["source_documents"]),
             "answers": [
                 {"content": doc.page_content, "source": os.path.basename(doc.metadata.get("source", "unknown"))}
                 for doc in results["source_documents"]
@@ -128,6 +131,9 @@ def query(question: str):
         # Old format (fallback)
         return {
             "question": question,
+            "query_type": "general",
+            "k_used": len(results),
+            "total_sections": len(results),
             "answers": [
                 {"content": doc.page_content, "source": os.path.basename(doc.metadata.get("source", "unknown"))}
                 for doc in results
@@ -138,5 +144,8 @@ def query(question: str):
         return {
             "question": question,
             "error": "No relevant information found in the uploaded documents.",
+            "query_type": "general",
+            "k_used": 0,
+            "total_sections": 0,
             "answers": []
         }
