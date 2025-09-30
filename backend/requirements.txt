@@ -1,0 +1,28 @@
+# FastAPI and server
+fastapi
+uvicorn
+python-multipart
+
+# Core LangChain packages
+langchain
+langchain-community
+langchain-core
+langchain-chroma
+langchain-huggingface
+langchain-ollama
+
+# Vector database and embeddings
+chromadb
+sentence-transformers
+
+# Document processing
+pypdf
+
+# Additional dependencies
+numpy
+torch
+transformers
+huggingface-hub
+
+# Optional but recommended for better performance
+accelerate
