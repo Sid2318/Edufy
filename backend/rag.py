@@ -7,6 +7,7 @@ from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.messages import HumanMessage, SystemMessage
+from domain_data import DOMAIN_KEYWORDS, DOMAIN_QUESTIONS, DOMAIN_FLASHCARDS
 
 # Simple cache to avoid multiple simultaneous AI calls
 _ai_cache = {}
@@ -104,7 +105,7 @@ Generate a clear, comprehensive answer that would help a student understand the 
         return basic_answer if basic_answer else "Error with AI enhancement."
 
 def enhance_flashcard_answers(flashcards, document_content):
-    """Enhance flashcard answers using AI model for better quality and validity."""
+    """Enhance flashcard answers using AI model optimized for memory and recall."""
     if not flashcards:
         return flashcards
     
@@ -113,26 +114,106 @@ def enhance_flashcard_answers(flashcards, document_content):
     for i, card in enumerate(flashcards):
         question = card.get("question", "")
         original_answer = card.get("answer", "")
+        difficulty = card.get("difficulty", "medium")
+        category = card.get("category", "general")
         
-        print(f"🤖 Enhancing flashcard {i+1}/{len(flashcards)}: {question[:50]}...")
+        print(f"� Optimizing flashcard {i+1}/{len(flashcards)} for recall: {question[:40]}...")
         
-        # Generate enhanced answer
-        enhanced_answer = enhance_answer_with_ai(question, document_content, original_answer)
+        # Create memory-focused enhancement prompt
+        enhanced_answer = enhance_flashcard_for_memory(question, original_answer, document_content, difficulty, category)
         
         enhanced_card = {
             "question": question,
             "answer": enhanced_answer,
-            "original_answer": original_answer  # Keep original for comparison
+            "original_answer": original_answer,
+            "difficulty": difficulty,
+            "category": category,
+            "memory_optimized": True
         }
         
         # Preserve any additional fields
         for key, value in card.items():
-            if key not in ["question", "answer"]:
+            if key not in ["question", "answer", "difficulty", "category"]:
                 enhanced_card[key] = value
         
         enhanced_flashcards.append(enhanced_card)
     
     return enhanced_flashcards
+
+def enhance_flashcard_for_memory(question, original_answer, document_content, difficulty, category):
+    """Create memory-optimized flashcard answers using AI."""
+    try:
+        # Check if Ollama is available
+        import requests
+        try:
+            response = requests.get("http://localhost:11434/api/tags", timeout=2)
+            if response.status_code != 200:
+                return original_answer
+        except:
+            return original_answer
+        
+        from langchain_ollama.chat_models import ChatOllama
+        from langchain_core.messages import SystemMessage, HumanMessage
+        
+        # Initialize Ollama model
+        model = ChatOllama(
+            model="llama3",
+            timeout=25,
+            temperature=0.2  # Lower temperature for more consistent, factual responses
+        )
+        
+        # Memory-optimized enhancement prompt
+        prompt = f"""You are an expert in cognitive psychology and educational flashcard design. Create the perfect flashcard answer optimized for memory retention and active recall.
+
+FLASHCARD QUESTION: {question}
+ORIGINAL ANSWER: {original_answer}
+DIFFICULTY: {difficulty}
+CATEGORY: {category}
+
+DOCUMENT CONTEXT:
+{document_content[:2000]}
+
+MEMORY OPTIMIZATION RULES:
+1. Keep answers concise (1-2 sentences max) for better recall
+2. Use memory techniques: acronyms, mnemonics, vivid imagery
+3. Include key numbers, dates, or specific facts
+4. Make it testable - avoid vague descriptions
+5. Add context clues that trigger memory
+6. Use active voice and clear language
+7. Include "why" or "how" briefly if it aids memory
+8. For definitions: Term + Key Function + One distinguishing feature
+9. For processes: Number of steps + Key action words
+10. For comparisons: Main difference + One example
+
+DIFFICULTY GUIDELINES:
+- Easy: Simple recall, key facts, basic definitions
+- Medium: Relationships, comparisons, short processes  
+- Hard: Complex concepts, multi-step processes, analysis
+
+Create a memory-perfect answer that a student can easily recall during exam pressure:"""
+
+        try:
+            enhanced_response = model.invoke(prompt)
+            
+            if enhanced_response and len(enhanced_response.strip()) > 10:
+                # Clean up the response
+                clean_answer = enhanced_response.strip()
+                
+                # Ensure it's not too long (memory principle)
+                sentences = clean_answer.split('.')
+                if len(sentences) > 3:
+                    clean_answer = '. '.join(sentences[:2]).strip() + '.'
+                
+                return clean_answer
+            else:
+                return original_answer
+                
+        except Exception as e:
+            print(f"⚠️ Error enhancing flashcard: {e}")
+            return original_answer
+            
+    except Exception as e:
+        return original_answer
 
 def invalidate_previous_content():
     """Mark previous questions and flashcards as invalid for new document.
@@ -165,54 +246,8 @@ def invalidate_previous_content():
     }
 
 def get_hardcoded_flashcards_by_domain(domain):
-    """Return hardcoded flashcards based on document domain."""
-    
-    flashcards_by_domain = {
-        "computer_networks": [
-            {"question": "What does OSI stand for?", "answer": "Open Systems Interconnection - a conceptual framework used to describe network communications."},
-            {"question": "What is TCP/IP?", "answer": "Transmission Control Protocol/Internet Protocol - the fundamental communication protocol suite for the internet."},
-            {"question": "What is the difference between a hub and a switch?", "answer": "A hub broadcasts data to all ports, while a switch intelligently forwards data only to the intended recipient."},
-            {"question": "What is an IP address?", "answer": "A unique numerical identifier assigned to devices on a network to enable communication."},
-            {"question": "What is DNS?", "answer": "Domain Name System - translates human-readable domain names into IP addresses."}
-        ],
-        "computer_science": [
-            {"question": "What is Big O notation?", "answer": "A mathematical notation that describes the upper bound of an algorithm's time or space complexity."},
-            {"question": "What is a stack?", "answer": "A Last-In-First-Out (LIFO) data structure where elements are added and removed from the same end."},
-            {"question": "What is recursion?", "answer": "A programming technique where a function calls itself to solve smaller instances of the same problem."},
-            {"question": "What is object-oriented programming?", "answer": "A programming paradigm based on objects that contain data and methods to manipulate that data."},
-            {"question": "What is a hash table?", "answer": "A data structure that maps keys to values using a hash function for fast data retrieval."}
-        ],
-        "mathematics": [
-            {"question": "What is a derivative?", "answer": "The rate of change of a function with respect to its variable, representing the slope of the tangent line."},
-            {"question": "What is an integral?", "answer": "The reverse of differentiation, representing the area under a curve or the accumulation of quantities."},
-            {"question": "What is a matrix?", "answer": "A rectangular array of numbers arranged in rows and columns used in linear algebra."},
-            {"question": "What is probability?", "answer": "The measure of the likelihood that an event will occur, expressed as a number between 0 and 1."},
-            {"question": "What is a function?", "answer": "A mathematical relationship that assigns exactly one output value to each input value."}
-        ],
-        "physics": [
-            {"question": "What is Newton's First Law?", "answer": "An object at rest stays at rest, and an object in motion stays in motion, unless acted upon by an external force."},
-            {"question": "What is energy?", "answer": "The capacity to do work or cause change, existing in various forms like kinetic, potential, and thermal."},
-            {"question": "What is electromagnetic radiation?", "answer": "Energy propagated through space as oscillating electric and magnetic fields, including light and radio waves."},
-            {"question": "What is momentum?", "answer": "The product of an object's mass and velocity, representing its motion and resistance to stopping."},
-            {"question": "What is thermodynamics?", "answer": "The branch of physics dealing with heat, temperature, energy, and their relationships."}
-        ],
-        "biology": [
-            {"question": "What is DNA?", "answer": "Deoxyribonucleic acid - the molecule that carries genetic information in living organisms."},
-            {"question": "What is photosynthesis?", "answer": "The process by which plants convert light energy into chemical energy, producing glucose and oxygen."},
-            {"question": "What is mitosis?", "answer": "The process of cell division that produces two identical diploid cells from one parent cell."},
-            {"question": "What is evolution?", "answer": "The process by which species change over time through natural selection and genetic variation."},
-            {"question": "What is an enzyme?", "answer": "A protein that catalyzes biochemical reactions by lowering the activation energy required."}
-        ],
-        "chemistry": [
-            {"question": "What is an atom?", "answer": "The smallest unit of matter that retains the properties of an element, consisting of protons, neutrons, and electrons."},
-            {"question": "What is a chemical bond?", "answer": "The force that holds atoms together in molecules and compounds through sharing or transferring electrons."},
-            {"question": "What is pH?", "answer": "A scale measuring the acidity or alkalinity of a solution, ranging from 0 to 14."},
-            {"question": "What is a catalyst?", "answer": "A substance that increases the rate of a chemical reaction without being consumed in the process."},
-            {"question": "What is the periodic table?", "answer": "An organized arrangement of chemical elements based on their atomic number and properties."}
-        ]
-    }
-    
-    return flashcards_by_domain.get(domain, [])
+    """Return memory-focused flashcards optimized for recall and revision."""
+    return DOMAIN_FLASHCARDS.get(domain, [])
 
 def generate_simple_flashcards(document_chunks, max_cards=15):
     """Generate domain-specific flashcards with AI-enhanced answers."""
@@ -240,15 +275,19 @@ def generate_simple_flashcards(document_chunks, max_cards=15):
     print(f"📚 Generating {domain} domain flashcards...")
     hardcoded_flashcards = get_hardcoded_flashcards_by_domain(domain)
     
-    # Start with hardcoded flashcards
+    # Start with hardcoded domain-specific flashcards (priority)
     flashcards = hardcoded_flashcards.copy()
     
-    flashcards = []
+    # ENHANCED RECALL-FOCUSED FLASHCARD GENERATION FROM CONTENT
+    content_flashcards = []
     
-    # Rule 1: Extract definitions (key concepts)
+    print("🧠 Creating memory-focused flashcards for active recall...")
+    
+    # Rule 1: DEFINITION FLASHCARDS - "What is X?" format for key terms
     definition_patterns = [
-        r'(\w+(?:\s+\w+){0,2})\s+(?:is|are|means?|refers?\s+to|defined?\s+as)\s+([^.!?]+[.!?])',
-        r'(?:the|a)\s+(\w+(?:\s+\w+){0,2})\s+(?:is|are)\s+([^.!?]+[.!?])',
+        r'(\w+(?:\s+\w+){0,3})\s+(?:is defined as|means|refers to|is)\s+([^.!?]{20,150}[.!?])',
+        r'(?:the term|concept of)\s+(\w+(?:\s+\w+){0,2})\s+(?:means|refers to)\s+([^.!?]{15,120}[.!?])',
+        r'(\w+(?:\s+\w+){0,2}):\s+([^.!?]{15,100}[.!?])',  # Colon definitions
     ]
     
     for pattern in definition_patterns:
@@ -257,35 +296,124 @@ def generate_simple_flashcards(document_chunks, max_cards=15):
             if len(match) == 2:
                 term = match[0].strip().title()
                 definition = match[1].strip()
-                # Keep answers short (1-3 sentences max)
-                if len(term) > 2 and 10 < len(definition) < 150:
-                    # Ensure answer is concise
+                
+                if len(term) > 2 and 15 < len(definition) < 150:
+                    # Create concise, memorable answer
                     sentences = definition.split('.')
                     answer = '. '.join(sentences[:2]).strip()
                     if not answer.endswith('.'):
                         answer += '.'
                     
-                    flashcards.append({
-                        "question": f"What is {term}?",
-                        "answer": answer
+                    content_flashcards.append({
+                        "question": f"🎯 Define: {term}",
+                        "answer": answer,
+                        "difficulty": "easy",
+                        "category": "definition",
+                        "source": "content"
                     })
     
-    # Rule 2: Extract key processes and procedures
+    # Rule 2: PROCESS & STEPS FLASHCARDS - "How to?" and "List steps" format
     process_patterns = [
-        r'(?:steps?|process|procedure|method)(?:\s+to|\s+for|\s+of)\s+([^:]+):\s*([^.!?]+[.!?])',
-        r'(?:how to|to)\s+([^:]+):\s*([^.!?]+[.!?])',
+        r'(?:steps?|phases?|stages?)\s+(?:to|for|in|of)\s+([^:]{10,40}):\s*([^.!?]{20,150})',
+        r'(?:process|procedure|method)\s+(?:of|for|to)\s+([^:]{10,40}):\s*([^.!?]{20,150})',
+        r'(?:how to|to)\s+([^:]{10,50}):\s*([^.!?]{20,150})',
     ]
     
     for pattern in process_patterns:
         matches = re.findall(pattern, combined_content, re.IGNORECASE)
         for match in matches:
             if len(match) == 2:
-                process_name = match[0].strip()
-                description = match[1].strip()
-                if len(process_name) > 3 and 15 < len(description) < 120:
-                    flashcards.append({
-                        "question": f"How to {process_name}?",
-                        "answer": description
+                process_name = match[0].strip().title()
+                steps = match[1].strip()
+                
+                if len(process_name) > 5 and 20 < len(steps) < 150:
+                    # Create step-focused answer
+                    content_flashcards.append({
+                        "question": f"📋 Steps: How do you {process_name.lower()}?",
+                        "answer": steps,
+                        "difficulty": "medium",
+                        "category": "process",
+                        "source": "content"
+                    })
+
+    # Rule 3: COMPARISON FLASHCARDS - "Compare X vs Y" format
+    comparison_patterns = [
+        r'(?:difference between|compare)\s+([^.!?]{5,30})\s+(?:and|vs|versus)\s+([^.!?]{5,30})[:\s]*([^.!?]{20,150})',
+        r'([^.!?]{5,30})\s+(?:differs from|compared to)\s+([^.!?]{5,30})[:\s]*([^.!?]{20,150})',
+        r'(?:unlike|whereas)\s+([^.!?,]{5,30}),?\s+([^.!?,]{5,30})\s+([^.!?]{20,150})',
+    ]
+    
+    for pattern in comparison_patterns:
+        matches = re.findall(pattern, combined_content, re.IGNORECASE)
+        for match in matches:
+            if len(match) == 3:
+                item1 = match[0].strip().title()
+                item2 = match[1].strip().title()
+                difference = match[2].strip()
+                
+                if len(item1) > 2 and len(item2) > 2 and 20 < len(difference) < 150:
+                    content_flashcards.append({
+                        "question": f"🔀 Compare: {item1} vs {item2}",
+                        "answer": f"{item1} vs {item2}: {difference}",
+                        "difficulty": "medium",
+                        "category": "comparison",
+                        "source": "content"
+                    })
+
+    # Rule 4: NUMERICAL/FACTUAL RECALL - Numbers, dates, quantities
+    numerical_patterns = [
+        r'(\d+)\s+(?:types?|kinds?|categories?|phases?|steps?|layers?)\s+of\s+([^.!?]{5,40})',
+        r'([^.!?]{5,40})\s+(?:has|contains?|consists? of)\s+(\d+)\s+([^.!?]{5,40})',
+        r'(\w+(?:\s+\w+){0,3})\s+(?:is|are)\s+(\d+(?:\.\d+)?)\s*([^.!?]{5,40})',
+    ]
+    
+    for pattern in numerical_patterns:
+        matches = re.findall(pattern, combined_content, re.IGNORECASE)
+        for match in matches:
+            if len(match) >= 2:
+                if len(match) == 3 and match[0].isdigit():
+                    # Pattern: "7 layers of OSI model"
+                    number, concept = match[0], match[1]
+                    content_flashcards.append({
+                        "question": f"🔢 Quick Recall: How many {concept}?",
+                        "answer": f"{number} {concept}",
+                        "difficulty": "easy",
+                        "category": "recall",
+                        "source": "content"
+                    })
+                elif len(match) == 3 and match[1].isdigit():
+                    # Pattern: "OSI model has 7 layers"
+                    concept, number, unit = match[0], match[1], match[2]
+                    content_flashcards.append({
+                        "question": f"🔢 How many: {concept}?",
+                        "answer": f"{concept} has {number} {unit}",
+                        "difficulty": "easy",
+                        "category": "recall",
+                        "source": "content"
+                    })
+
+    # Rule 5: ADVANTAGE/DISADVANTAGE FLASHCARDS - Benefits and limitations
+    advantage_patterns = [
+        r'(?:advantages?|benefits?)\s+of\s+([^.!?:]{5,40})[:\s]*([^.!?]{20,150})',
+        r'(?:disadvantages?|limitations?)\s+of\s+([^.!?:]{5,40})[:\s]*([^.!?]{20,150})',
+        r'([^.!?]{5,40})\s+(?:advantage|benefit)[:\s]*([^.!?]{20,150})',
+    ]
+    
+    for pattern in advantage_patterns:
+        matches = re.findall(pattern, combined_content, re.IGNORECASE)
+        for match in matches:
+            if len(match) == 2:
+                concept = match[0].strip().title()
+                detail = match[1].strip()
+                
+                if len(concept) > 3 and 20 < len(detail) < 150:
+                    question_type = "💡 Advantage:" if "advantage" in pattern or "benefit" in pattern else "⚠️ Limitation:"
+                    content_flashcards.append({
+                        "question": f"{question_type} What's a key benefit/limitation of {concept}?",
+                        "answer": detail,
+                        "difficulty": "medium",
+                        "category": "analysis",
+                        "source": "content"
                     })
     
     # Rule 3: Extract important facts and key points
@@ -405,29 +533,70 @@ def generate_simple_flashcards(document_chunks, max_cards=15):
         ]
         flashcards.extend(generic_flashcards)
     
-    # Remove duplicates and ensure quality
-    unique_flashcards = []
+    # SMART FLASHCARD COMBINATION - Prioritize for effective recall
+    print("🎯 Combining and prioritizing flashcards for optimal learning...")
+    
+    # Combine all flashcards with priorities
+    all_flashcards = []
+    
+    # Priority 1: Domain-specific hardcoded flashcards (always include these)
+    hardcoded_count = min(len(flashcards), max_cards // 2)  # Use up to half slots for domain cards
+    all_flashcards.extend(flashcards[:hardcoded_count])
+    print(f"📚 Added {hardcoded_count} domain-specific flashcards")
+    
+    # Priority 2: Content-extracted flashcards by category importance
+    remaining_slots = max_cards - len(all_flashcards)
+    
+    # Sort content flashcards by difficulty and category for better learning progression
+    easy_cards = [card for card in content_flashcards if card.get("difficulty") == "easy"]
+    medium_cards = [card for card in content_flashcards if card.get("difficulty") == "medium"]
+    hard_cards = [card for card in content_flashcards if card.get("difficulty") == "hard"]
+    
+    # Add cards in learning order: easy → medium → hard
+    content_to_add = []
+    content_to_add.extend(easy_cards[:remaining_slots//3])  # 1/3 easy
+    content_to_add.extend(medium_cards[:remaining_slots//3])  # 1/3 medium  
+    content_to_add.extend(hard_cards[:remaining_slots//3])  # 1/3 hard
+    
+    # Add remaining slots with best content cards
+    remaining_after_categorized = remaining_slots - len(content_to_add)
+    other_content = [card for card in content_flashcards if card not in content_to_add]
+    content_to_add.extend(other_content[:remaining_after_categorized])
+    
+    all_flashcards.extend(content_to_add)
+    print(f"📝 Added {len(content_to_add)} content-based flashcards")
+    
+    # Remove duplicates while preserving priority order
+    final_flashcards = []
     seen_questions = set()
     
-    for card in flashcards:
+    for card in all_flashcards:
         question_key = card["question"].lower().strip()
-        answer = card["answer"].strip()
         
-        # Quality check: ensure answer is 1-3 sentences max
-        answer_sentences = answer.split('.')
-        if len(answer_sentences) > 4:  # More than 3 sentences (accounting for empty string after last period)
-            answer = '. '.join(answer_sentences[:3]).strip() + '.'
+        # Clean and validate answer
+        answer = str(card.get("answer", "")).strip()
+        if len(answer) > 200:  # Limit answer length for better recall
+            sentences = answer.split('.')
+            answer = '. '.join(sentences[:2]).strip()
+            if not answer.endswith('.'):
+                answer += '.'
             card["answer"] = answer
         
-        # Check for duplicates and quality
+        # Add metadata for better learning experience
+        if "difficulty" not in card:
+            card["difficulty"] = "medium"
+        if "category" not in card:
+            card["category"] = "general"
+        
+        # Quality check and deduplication
         if (question_key not in seen_questions and 
-            len(card["answer"]) > 10 and 
-            len(card["answer"]) < 200 and
-            len(unique_flashcards) < max_cards):
+            len(answer) >= 15 and 
+            len(answer) <= 200 and
+            len(final_flashcards) < max_cards):
             seen_questions.add(question_key)
-            unique_flashcards.append(card)
+            final_flashcards.append(card)
     
-    final_flashcards = unique_flashcards[:max_cards]
+    print(f"✅ Created {len(final_flashcards)} high-quality flashcards for active recall")
     
     # ENHANCED: Use AI to improve flashcard answers
     print("🤖 Enhancing flashcard answers with AI...")
@@ -450,53 +619,9 @@ def detect_document_domain(content):
     """Detect the domain/subject of the document based on keywords."""
     content_lower = content.lower()
     
-    # Define domain keywords
-    domains = {
-        "computer_networks": [
-            "osi model", "tcp/ip", "network", "protocol", "router", "switch", "ethernet", 
-            "ip address", "subnet", "dns", "http", "https", "firewall", "bandwidth",
-            "packet", "frame", "topology", "lan", "wan", "wireless", "fiber optic"
-        ],
-        "computer_science": [
-            "algorithm", "data structure", "programming", "coding", "software", "database",
-            "operating system", "compiler", "debugging", "array", "linked list", "stack",
-            "queue", "tree", "graph", "sorting", "searching", "complexity", "recursion"
-        ],
-        "mathematics": [
-            "equation", "function", "derivative", "integral", "matrix", "vector", "calculus",
-            "algebra", "geometry", "probability", "statistics", "theorem", "proof", "formula",
-            "trigonometry", "logarithm", "polynomial", "linear", "quadratic"
-        ],
-        "physics": [
-            "force", "energy", "momentum", "velocity", "acceleration", "mass", "gravity",
-            "electric", "magnetic", "wave", "frequency", "amplitude", "quantum", "particle",
-            "thermodynamics", "mechanics", "optics", "relativity", "nuclear"
-        ],
-        "biology": [
-            "cell", "dna", "rna", "protein", "enzyme", "chromosome", "gene", "evolution",
-            "photosynthesis", "mitosis", "meiosis", "organism", "species", "ecosystem",
-            "metabolism", "respiration", "reproduction", "heredity", "mutation"
-        ],
-        "chemistry": [
-            "atom", "molecule", "element", "compound", "reaction", "bond", "acid", "base",
-            "ion", "electron", "proton", "neutron", "periodic table", "catalyst", "solution",
-            "ph", "oxidation", "reduction", "organic", "inorganic"
-        ],
-        "business": [
-            "management", "marketing", "finance", "accounting", "strategy", "profit", "revenue",
-            "investment", "stock", "market", "customer", "competition", "supply chain",
-            "human resources", "leadership", "entrepreneur", "budget", "analysis"
-        ],
-        "literature": [
-            "author", "character", "plot", "theme", "setting", "narrative", "metaphor",
-            "symbolism", "poetry", "novel", "drama", "prose", "verse", "literary",
-            "fiction", "non-fiction", "genre", "style", "analysis"
-        ]
-    }
-    
-    # Count keyword matches for each domain
+    # Count keyword matches for each domain using imported data
     domain_scores = {}
-    for domain, keywords in domains.items():
+    for domain, keywords in DOMAIN_KEYWORDS.items():
         score = sum(1 for keyword in keywords if keyword in content_lower)
         if score > 0:
             domain_scores[domain] = score
@@ -512,119 +637,7 @@ def detect_document_domain(content):
 
 def get_hardcoded_questions_by_domain(domain, content_preview=""):
     """Return hardcoded smart questions based on document domain."""
-    
-    questions_by_domain = {
-        "computer_networks": [
-            "What are the seven layers of the OSI model and their functions?",
-            "How does TCP/IP protocol suite work?",
-            "What is the difference between a router and a switch?",
-            "How does DNS resolution work?",
-            "What are the different network topologies and their advantages?",
-            "How does Ethernet protocol function?",
-            "What is the difference between IPv4 and IPv6?",
-            "How do firewalls protect networks?",
-            "What is subnetting and why is it important?",
-            "How does wireless networking work?"
-        ],
-        "computer_science": [
-            "What are the fundamental data structures and when to use each?",
-            "How do different sorting algorithms compare in terms of time complexity?",
-            "What is the difference between stack and heap memory?",
-            "How does recursion work and when should it be used?",
-            "What are the principles of object-oriented programming?",
-            "How do hash tables work and what are their applications?",
-            "What is Big O notation and why is it important?",
-            "How do different tree traversal algorithms work?",
-            "What are the key concepts in database design?",
-            "How does garbage collection work in programming languages?"
-        ],
-        "mathematics": [
-            "What are the fundamental concepts of calculus?",
-            "How do you solve systems of linear equations?",
-            "What are the properties of different types of functions?",
-            "How do you calculate derivatives and integrals?",
-            "What are the key principles of probability theory?",
-            "How do you work with matrices and vectors?",
-            "What are the different types of mathematical proofs?",
-            "How do trigonometric functions relate to geometry?",
-            "What are the applications of logarithms?",
-            "How do you analyze statistical data?"
-        ],
-        "physics": [
-            "What are Newton's laws of motion and their applications?",
-            "How do electric and magnetic fields interact?",
-            "What are the principles of thermodynamics?",
-            "How does wave motion work in different media?",
-            "What are the key concepts of quantum mechanics?",
-            "How do you calculate work, energy, and power?",
-            "What are the principles of relativity?",
-            "How does light behave as both wave and particle?",
-            "What are the fundamental forces in nature?",
-            "How do you analyze circular and rotational motion?"
-        ],
-        "biology": [
-            "How does cellular respiration produce energy?",
-            "What are the stages of mitosis and meiosis?",
-            "How does DNA replication work?",
-            "What are the principles of genetics and heredity?",
-            "How does photosynthesis convert light to chemical energy?",
-            "What are the different types of ecosystems?",
-            "How does evolution shape species over time?",
-            "What are the functions of different organ systems?",
-            "How do enzymes catalyze biochemical reactions?",
-            "What are the principles of molecular biology?"
-        ],
-        "chemistry": [
-            "How do chemical bonds form between atoms?",
-            "What are the different types of chemical reactions?",
-            "How does the periodic table organize elements?",
-            "What are acids, bases, and pH?",
-            "How do you balance chemical equations?",
-            "What are the principles of thermochemistry?",
-            "How does molecular geometry affect chemical properties?",
-            "What are the differences between organic and inorganic chemistry?",
-            "How do catalysts affect reaction rates?",
-            "What are the states of matter and phase transitions?"
-        ],
-        "business": [
-            "What are the key principles of strategic management?",
-            "How do you analyze market competition?",
-            "What are the fundamentals of financial accounting?",
-            "How do you develop effective marketing strategies?",
-            "What are the principles of organizational behavior?",
-            "How do you evaluate investment opportunities?",
-            "What are the different leadership styles?",
-            "How do you manage supply chain operations?",
-            "What are the key performance indicators for business?",
-            "How do you conduct market research?"
-        ],
-        "literature": [
-            "What are the major themes in this literary work?",
-            "How do characters develop throughout the story?",
-            "What literary devices does the author use?",
-            "How does the setting influence the narrative?",
-            "What is the significance of symbolism in the text?",
-            "How does the author's style contribute to meaning?",
-            "What are the cultural and historical contexts?",
-            "How do different interpretations of the work compare?",
-            "What are the moral and philosophical questions raised?",
-            "How does this work relate to other literature of its time?"
-        ],
-        "general": [
-            "What are the main topics covered in this document?",
-            "What are the key concepts you should understand?",
-            "How do the different sections relate to each other?",
-            "What examples or case studies are provided?",
-            "What are the practical applications mentioned?",
-            "What are the important definitions to remember?",
-            "How can you apply this knowledge?",
-            "What are the key takeaways from this material?",
-            "What additional resources might be helpful?",
-            "How does this content build on previous knowledge?"
-        ]
-    }
-    
-    return questions_by_domain.get(domain, questions_by_domain["general"])
+    return DOMAIN_QUESTIONS.get(domain, DOMAIN_QUESTIONS["general"])
 
 def generate_questions_from_content(document_chunks):
     """Generate intelligent sample questions based on document domain and content analysis."""

@@ -11,7 +11,8 @@ app = FastAPI()
 document_state = {
     "last_upload_time": 0,
     "current_filename": "",
-    "content_generating": False
+    "content_ready": True,
+    "upload_complete": False
 }
 
 # Allow React frontend
@@ -33,45 +34,76 @@ def read_root():
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    """Upload a PDF/TXT file and replace all previous documents."""
+    """Upload a PDF/TXT file and completely replace all previous documents."""
     global db, embeddings
     
-    # Clear all previous documents first
-    clear_documents_directory()
-    
-    # Create documents directory
-    docs_dir = os.path.join(os.path.dirname(__file__), "documents")
-    os.makedirs(docs_dir, exist_ok=True)
-    file_path = os.path.join(docs_dir, file.filename)
-
     try:
-        # Save the new uploaded file
+        # Step 1: Validate file type first
+        if not file.filename.lower().endswith(('.pdf', '.txt')):
+            return {"error": f"❌ Unsupported file type: {file.filename}. Please upload PDF or TXT files only."}
+        
+        print(f"🔄 Starting upload process for: {file.filename}")
+        
+        # Step 2: Clear all previous documents and their data
+        print("🗑️ Clearing previous documents...")
+        clear_documents_directory()
+        
+        # Step 3: Clear all cached AI-generated content (questions, flashcards, queries)
+        print("🧹 Clearing AI cache to regenerate content...")
+        clear_ai_cache()
+        
+        # Step 4: Reset document state completely
+        print("📋 Resetting document state...")
+        document_state.clear()  # Clear all previous state
+        document_state["upload_in_progress"] = True
+        document_state["current_filename"] = file.filename
+        document_state["upload_start_time"] = time.time()
+        
+        # Step 5: Create documents directory and save new file
+        docs_dir = os.path.join(os.path.dirname(__file__), "documents")
+        os.makedirs(docs_dir, exist_ok=True)
+        file_path = os.path.join(docs_dir, file.filename)
+
+        print(f"💾 Saving new file: {file.filename}")
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
-        # Validate file size
+        # Step 6: Validate file size and content
         file_size = os.path.getsize(file_path)
         if file_size == 0:
             os.remove(file_path)  # Remove empty file
-            return {"error": f"The uploaded file {file.filename} is empty. Please upload a valid document."}
+            document_state.clear()
+            return {"error": f"❌ The uploaded file {file.filename} is empty. Please upload a valid document."}
         
-        print(f"📁 Saved file: {file.filename} ({file_size} bytes)")
+        print(f"✅ File saved successfully: {file.filename} ({file_size} bytes)")
 
-        # Recreate the vector store with only the new document
+        # Step 7: Recreate the vector store with only the new document
+        print("🔄 Processing document and creating vector store...")
         db, embeddings = initialize_vector_store(force_recreate=True)
         
         if db is None:
-            return {"error": f"Failed to process {file.filename}. The document might be empty, corrupted, or contain no readable text. Please try uploading a different document."}
+            # Clean up the file if processing failed
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            document_state.clear()
+            return {"error": f"❌ Failed to process {file.filename}. The document might be empty, corrupted, or contain no readable text. Please try uploading a different document."}
 
-        # Clear AI cache so questions and flashcards regenerate for the new document
-        clear_ai_cache()
-        
-        # Update document state to invalidate old content
+        # Step 8: Update document state to indicate successful upload
+        document_state.clear()
         document_state["last_upload_time"] = time.time()
         document_state["current_filename"] = file.filename
-        document_state["content_generating"] = True
-
-        return {"message": f"{file.filename} uploaded successfully! Previous documents have been replaced."}
+        document_state["content_ready"] = True
+        document_state["upload_complete"] = True
+        
+        print(f"🎉 Upload complete! Ready to generate new content for: {file.filename}")
+        
+        return {
+            "message": f"✅ {file.filename} uploaded successfully!",
+            "details": "Previous documents deleted. New questions and flashcards will be generated based on your new document.",
+            "filename": file.filename,
+            "file_size": file_size,
+            "status": "ready"
+        }
         
     except Exception as e:
         print(f"❌ Error during upload: {e}")
@@ -124,21 +156,31 @@ def get_flashcards():
     
     # Check if we're in the middle of generating content for a new document
     current_time = time.time()
-    time_since_upload = current_time - document_state["last_upload_time"]
+    
+    # Safe access to document state with defaults
+    last_upload_time = document_state.get("last_upload_time", 0)
+    content_ready = document_state.get("content_ready", True)
+    current_filename = document_state.get("current_filename", "document")
+    
+    time_since_upload = current_time - last_upload_time
     
     # Show invalid content for first 3 seconds after upload, then generate new content
-    if document_state["content_generating"] and time_since_upload < 3:
-        invalid_content = invalidate_previous_content()
-        return {
-            "flashcards": invalid_content["flashcards"],
-            "total": len(invalid_content["flashcards"]),
-            "status": "regenerating",
-            "message": f"Generating new flashcards for {document_state['current_filename']}..."
-        }
+    if not content_ready and time_since_upload < 3 and last_upload_time > 0:
+        try:
+            invalid_content = invalidate_previous_content()
+            return {
+                "flashcards": invalid_content["flashcards"],
+                "total": len(invalid_content["flashcards"]),
+                "status": "regenerating",
+                "message": f"Generating new flashcards for {current_filename}..."
+            }
+        except Exception as e:
+            print(f"Error generating invalid content: {e}")
+            # Continue with normal generation
     
     # Mark content generation as complete after delay
-    if document_state["content_generating"] and time_since_upload >= 3:
-        document_state["content_generating"] = False
+    if not content_ready and time_since_upload >= 3:
+        document_state["content_ready"] = True
     
     try:
         # Get document chunks for flashcard generation
@@ -165,20 +207,30 @@ def get_sample_questions():
     
     # Check if we're in the middle of generating content for a new document
     current_time = time.time()
-    time_since_upload = current_time - document_state["last_upload_time"]
+    
+    # Safe access to document state with defaults
+    last_upload_time = document_state.get("last_upload_time", 0)
+    content_generating = document_state.get("content_ready", True)  # Changed from content_generating
+    current_filename = document_state.get("current_filename", "document")
+    
+    time_since_upload = current_time - last_upload_time
     
     # Show invalid content for first 3 seconds after upload, then generate new content
-    if document_state["content_generating"] and time_since_upload < 3:
-        invalid_content = invalidate_previous_content()
-        return {
-            "questions": invalid_content["questions"],
-            "status": "regenerating",
-            "message": f"Generating new questions for {document_state['current_filename']}..."
-        }
+    if not content_generating and time_since_upload < 3 and last_upload_time > 0:
+        try:
+            invalid_content = invalidate_previous_content()
+            return {
+                "questions": invalid_content["questions"],
+                "status": "regenerating",
+                "message": f"Generating new questions for {current_filename}..."
+            }
+        except Exception as e:
+            print(f"Error generating invalid content: {e}")
+            # Continue with normal generation
     
     # Mark content generation as complete after delay
-    if document_state["content_generating"] and time_since_upload >= 3:
-        document_state["content_generating"] = False
+    if not content_generating and time_since_upload >= 3:
+        document_state["content_ready"] = True
     
     # Get document chunks with diverse content for comprehensive analysis
     try:
