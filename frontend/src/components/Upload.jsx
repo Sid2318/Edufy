@@ -34,20 +34,8 @@ const Upload = () => {
 
   return (
     <div className="space-y-6">
-      <div className="text-center">
-        <h2 className="text-2xl font-bold text-gray-800 mb-2">
-          📚 Upload Study Document
-        </h2>
-        <p className="text-gray-600 mb-2">
-          Upload PDF or TXT files to create your knowledge base
-        </p>
-        <p className="text-sm text-orange-600 bg-orange-50 rounded-lg px-3 py-2 inline-block">
-          ⚠️ Each new upload will replace the previous document
-        </p>
-      </div>
-
       <div className="space-y-4">
-        <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
+        <div className="border-2 border-dashed border-gray-300 rounded-2xl p-8 text-center hover:border-indigo-400 hover:bg-indigo-50/40 transition-all duration-300 group">
           <input
             type="file"
             onChange={handleFileChange}
@@ -55,14 +43,46 @@ const Upload = () => {
             className="hidden"
             id="fileUpload"
           />
-          <label htmlFor="fileUpload" className="cursor-pointer">
-            <div className="space-y-2">
-              <div className="text-4xl">📄</div>
-              <div className="text-gray-600">
-                {file ? file.name : "Click to select a file or drag and drop"}
+          <label htmlFor="fileUpload" className="cursor-pointer block">
+            <div className="space-y-4">
+              <div className="w-20 h-20 bg-gradient-to-br from-indigo-100 to-blue-100 rounded-2xl flex items-center justify-center mx-auto group-hover:scale-110 transition-transform duration-300">
+                {file ? (
+                  <svg
+                    className="w-10 h-10 text-green-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                ) : (
+                  <svg
+                    className="w-10 h-10 text-indigo-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                    />
+                  </svg>
+                )}
               </div>
-              <div className="text-sm text-gray-400">
-                Supports PDF and TXT files
+              <div className="space-y-2">
+                <div className="text-lg font-semibold text-gray-700">
+                  {file ? file.name : "Click to select a file or drag and drop"}
+                </div>
+                <div className="text-sm text-gray-500">
+                  Supports PDF and TXT files up to 10MB
+                </div>
               </div>
             </div>
           </label>
@@ -71,32 +91,78 @@ const Upload = () => {
         <button
           onClick={handleUpload}
           disabled={!file || isUploading}
-          className={`w-full py-3 px-6 rounded-lg font-semibold transition-all ${
+          className={`w-full py-4 px-6 rounded-2xl font-bold text-lg transition-all duration-300 ${
             !file || isUploading
-              ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-              : "bg-blue-600 text-white hover:bg-blue-700 transform hover:scale-105"
+              ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+              : "bg-gradient-to-r from-indigo-600 to-blue-600 text-white hover:from-indigo-700 hover:to-blue-700 shadow-lg hover:shadow-xl transform hover:scale-105"
           }`}
         >
           {isUploading ? (
             <span className="flex items-center justify-center">
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-              Uploading...
+              <div className="animate-spin rounded-full h-6 w-6 border-3 border-white border-t-transparent mr-3"></div>
+              Uploading Document...
             </span>
           ) : (
-            "Upload Document"
+            <span className="flex items-center justify-center">
+              <svg
+                className="w-6 h-6 mr-3"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                />
+              </svg>
+              Upload Document
+            </span>
           )}
         </button>
       </div>
 
       {message && (
         <div
-          className={`p-4 rounded-lg ${
+          className={`p-4 rounded-2xl border font-medium slide-in ${
             message.includes("✅")
-              ? "bg-green-100 text-green-800"
-              : "bg-red-100 text-red-800"
+              ? "bg-green-50 text-green-700 border-green-200"
+              : "bg-red-50 text-red-700 border-red-200"
           }`}
         >
-          {message}
+          <div className="flex items-center space-x-2">
+            {message.includes("✅") ? (
+              <svg
+                className="w-5 h-5 text-green-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            ) : (
+              <svg
+                className="w-5 h-5 text-red-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            )}
+            <span>{message.replace(/[✅❌]/g, "").trim()}</span>
+          </div>
         </div>
       )}
     </div>
