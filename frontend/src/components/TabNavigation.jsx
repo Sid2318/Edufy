@@ -180,7 +180,6 @@ const TabNavigation = ({ selectedQuestion, onQuestionChange }) => {
                   </svg>
                 </div>
                 <span className="font-bold tracking-wide">Flashcards</span>
-
               </div>
             </button>
           </div>

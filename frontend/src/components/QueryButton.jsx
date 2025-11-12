@@ -55,7 +55,7 @@ const QueryButton = ({
         <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-indigo-600 to-blue-600 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
                 <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
@@ -99,7 +99,7 @@ const QueryButton = ({
                 className={`inline-flex items-center px-6 py-3 rounded-xl font-medium text-sm transition-all duration-200 ${
                   isChecking
                     ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                    : "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm hover:shadow-md"
+                    : "bg-blue-600 text-white hover:bg-blue-700 shadow-sm hover:shadow-md"
                 }`}
               >
                 {isChecking ? (

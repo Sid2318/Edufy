@@ -27,7 +27,7 @@ function App() {
                   <span className="text-xl font-bold text-white">E</span>
                 </div>
                 <div>
-                  <h1 className="text-4xl font-bold text-gray-900">Edufy</h1>
+                  <h1 className="text-4xl font-bold text-gray-900">Edufy 🎓 </h1>
                   <p className="text-sm text-gray-600">
                     AI-powered study companion
                   </p>
